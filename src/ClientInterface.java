@@ -1,11 +1,17 @@
-
-
+import exceptions.AccountNotFoundException;
+import exceptions.DuplicateUserIdException;
+import exceptions.InvalidAmountException;
+import exceptions.InvalidPasswordException;
+import exceptions.NonZeroBalanceException;
 import model.BankAccount;
+import model.CheckingAccount;
+import java.util.Objects;
 
 import java.io.IOException;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Scanner;
+import java.util.UUID;
 
 public class ClientInterface {
 
@@ -13,7 +19,7 @@ public class ClientInterface {
 
     private final Scanner scanner = new Scanner(System.in);
 
-    private List<String> options = List.of(
+    private final List<String> options = List.of(
             "1 - Create account",
             "2 - Delete account",
             "3 - Make account deposit",
@@ -23,43 +29,42 @@ public class ClientInterface {
     );
 
     public void start() throws IOException {
-
-        String option;
         while (true) {
             printMainMenu();
-            option = scanner.next();
+            String option = scanner.next();
 
-            switch (Integer.parseInt(option)) {
-                case 1:
-                    try {
+            try {
+                int choice = Integer.parseInt(option);
+                switch (choice) {
+                    case 1:
                         addNewAccount();
-                    } catch (Exception e) {
-                        System.err.println("Error: " + e.getMessage() + "\n");
                         break;
-                    }
-                    break;
-                case 2:
-                    deleteAccount();
-                    break;
-                case 3:
-                    deposit();
-                    break;
-                case 4:
-                    withdraw();
-                    break;
-                case 5:
-                    printInfo();
-                    break;
-                case 6:
-                    return;
-                default:
-                    // Please enter a valid choice (1 thru 6)
+                    case 2:
+                        deleteAccount();
+                        break;
+                    case 3:
+                        deposit();
+                        break;
+                    case 4:
+                        withdraw();
+                        break;
+                    case 5:
+                        printInfo();
+                        break;
+                    case 6:
+                        return;
+                    default:
+                        System.err.println("Error: Please enter a valid choice (1 thru 6).\n");
+                }
+            } catch (NumberFormatException e) {
+                System.err.println("Error: Please enter a valid number (1 thru 6).\n");
+            } catch (Exception e) {
+                System.err.println("Error: " + e.getMessage() + "\n");
             }
         }
-
     }
 
-    private void printMainMenu() throws IOException {
+    private void printMainMenu() {
         System.out.println("\n****************");
         System.out.println("Banking system: ");
         System.out.println("****************");
@@ -67,14 +72,44 @@ public class ClientInterface {
         System.out.print("\n>>> Choose your option: ");
     }
 
+    private void validatePassword(String password) {
+        if (password == null || password.length() < 8 || !password.matches(".*\\d.*")) {
+            throw new InvalidPasswordException(
+                    "Пароль повинен містити щонайменше 8 символів і хоча б одну цифру."
+            );
+        }
+    }
+
+    private Long parseUserId(String rawId) {
+        try {
+            return Long.parseLong(rawId);
+        } catch (NumberFormatException e) {
+            throw new AccountNotFoundException("Некоректний формат userId.");
+        }
+    }
+
+    private double parseAmount(String rawAmount) {
+        try {
+            return Double.parseDouble(rawAmount.replace(',', '.'));
+        } catch (NumberFormatException e) {
+            throw new InvalidAmountException("Некоректний формат суми.");
+        }
+    }
+
+    private BankAccount findAndAuthenticate(String rawUserId, String password) {
+        Long userId = parseUserId(rawUserId);
+        for (BankAccount account : accounts) {
+            if (userId.equals(account.getUserId())) {
+                if (!Objects.equals(account.getUserPassword(), password)) {
+                    throw new InvalidPasswordException("Невірний пароль.");
+                }
+                return account;
+            }
+        }
+        throw new AccountNotFoundException("Рахунок з userId " + userId + " не знайдено.");
+    }
+
     private void addNewAccount() {
-
-        /*
-         * В даному методі ви повинні передбачити перевірки для
-         * коректності полів нового акаунту та створити новий акаунт, якщо всі дані
-         * є коректними
-         */
-
         System.out.println("\n****************");
         System.out.println("Creating new account: ");
         System.out.println("****************");
@@ -82,20 +117,32 @@ public class ClientInterface {
         System.out.print(">>> Enter customer name: ");
         var name = scanner.next();
         System.out.print(">>> Enter user id: ");
-        var userId = scanner.next();
+        var rawUserId = scanner.next();
         System.out.print(">>> Enter user password: ");
         String password = scanner.next();
         System.out.print(">>> Confirm password: ");
         String confirmPassword = scanner.next();
+
+        Long userId = parseUserId(rawUserId);
+        for (BankAccount account : accounts) {
+            if (userId.equals(account.getUserId())) {
+                throw new DuplicateUserIdException("Рахунок з userId " + userId + " вже існує.");
+            }
+        }
+
+        validatePassword(password);
+        if (!Objects.equals(password, confirmPassword)) {
+            throw new InvalidPasswordException("Пароль та підтвердження паролю не збігаються.");
+        }
+
+        String accountNumber = "ACC-" + UUID.randomUUID().toString().substring(0, 8).toUpperCase();
+        CheckingAccount newAccount = new CheckingAccount(name, accountNumber, userId, password);
+        accounts.add(newAccount);
+
+        System.out.println("Account successfully created.");
     }
 
     private void deleteAccount() {
-
-        /*
-         * В даному методі ви повинні передбачити перевірки для
-         * коректності полів для видалення акаунту та видалити акаунт
-         */
-
         System.out.println("\n****************");
         System.out.println("Deleting account: ");
         System.out.println("****************");
@@ -104,15 +151,17 @@ public class ClientInterface {
         var userId = scanner.next();
         System.out.print(">>> Enter user password: ");
         var password = scanner.next();
+
+        BankAccount account = findAndAuthenticate(userId, password);
+        if (account.getAccountBalance() != 0.0) {
+            throw new NonZeroBalanceException("Неможливо видалити рахунок з ненульовим балансом.");
+        }
+
+        accounts.remove(account);
+        System.out.println("Account successfully deleted.");
     }
 
     private void deposit() {
-
-        /*
-         * В даному методі ви повинні передбачити перевірки для
-         * коректності полів та зробити внесок
-         */
-
         System.out.println("\n****************");
         System.out.println("Making a deposit: ");
         System.out.println("****************");
@@ -122,16 +171,16 @@ public class ClientInterface {
         System.out.print(">>> Enter user password: ");
         var password = scanner.next();
         System.out.print(">>> Enter amount: ");
-        var amount = scanner.next();
+        var rawAmount = scanner.next();
+
+        BankAccount account = findAndAuthenticate(userId, password);
+        double amount = parseAmount(rawAmount);
+        account.deposit(amount);
+
+        System.out.println("Deposit successful. Current balance: " + account.getAccountBalance());
     }
 
     private void withdraw() {
-
-        /*
-         * В даному методі ви повинні передбачити перевірки для
-         * коректності полів та зробити зняття коштів
-         */
-
         System.out.println("\n****************");
         System.out.println("Making a withdrawal: ");
         System.out.println("****************");
@@ -141,17 +190,16 @@ public class ClientInterface {
         System.out.print(">>> Enter user password: ");
         var password = scanner.next();
         System.out.print(">>> Enter amount: ");
-        var amount = scanner.next();
+        var rawAmount = scanner.next();
+
+        BankAccount account = findAndAuthenticate(userId, password);
+        double amount = parseAmount(rawAmount);
+        account.withdraw(amount);
+
+        System.out.println("Withdrawal successful. Current balance: " + account.getAccountBalance());
     }
 
     private void printInfo() {
-
-        /*
-         * Даний метод виводить інформацію щодо рахунку. Ви
-         * повинні перевірити наявність рахунку та вивести інформацію
-         * стосовно нього
-         */
-
         System.out.println("\n****************");
         System.out.println("Printing account info: ");
         System.out.println("****************");
@@ -161,12 +209,16 @@ public class ClientInterface {
         System.out.print(">>> Enter user password: ");
         var password = scanner.next();
 
-        System.out.println("\nAccount info: ");
+        BankAccount account = findAndAuthenticate(userId, password);
+        double limit = (account instanceof CheckingAccount checking)
+                ? checking.getDailyWithdrawalLimit()
+                : 0.0;
 
-        System.out.println(" - customer name: ");
-        System.out.println(" - account balance: ");
+        System.out.println("\nAccount info: ");
+        System.out.println(" - customer name: " + account.getCustomerName());
+        System.out.println(" - account balance: " + account.getAccountBalance());
         System.out.println(" - account type: Checking");
-        System.out.println(" - account daily withdrawal limit: ");
+        System.out.println(" - account daily withdrawal limit: " + limit);
 
         System.out.print("\nPress Enter to return to main menu...");
 
@@ -176,7 +228,4 @@ public class ClientInterface {
             throw new RuntimeException(e);
         }
     }
-
-
-
 }
